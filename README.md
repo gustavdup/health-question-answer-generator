@@ -1,34 +1,48 @@
 # Health Question Answer Generator
 
-A minimal Python 3 batch processor that retrieves answers to structured health questions using the OpenAI Assistants API. The system is synchronous, resume-safe, and designed for processing large batches of questions with automatic error handling and retry logic.
+An interactive Python batch processor that generates answers to structured health questions using the OpenAI Assistants API. Select from 8 health topics, process questions with context-aware prompts, and get timestamped CSV outputs with full tracking.
 
 ## Features
 
-- ✅ Batch processes structured health questions from text files
-- ✅ Uses OpenAI Assistants API (threads, messages, runs)
-- ✅ Resume-safe: skip already processed questions
-- ✅ Exponential backoff retry logic for rate limits
-- ✅ Continues processing on individual failures
-- ✅ CSV output with full tracking (thread_id, run_id, status)
-- ✅ Clean synchronous Python implementation
+- ✅ **Interactive file selector** - Choose which topic to process from a menu
+- ✅ **8 health topics** - Energy, Sleep, Stress, Nutrition, Hormones, Illness, Immunity, Mental Health
+- ✅ **Context-aware prompts** - Gender, care focus (Myself/Kids/Family), and parental status
+- ✅ **OpenAI Assistants API** - Threaded conversations with automatic polling
+- ✅ **Resume-safe** - Skip already processed questions automatically
+- ✅ **Timestamped outputs** - Each run creates a unique CSV in `outputs/` folder
+- ✅ **Error handling** - Exponential backoff retry logic for rate limits
+- ✅ **Full tracking** - CSV includes prompt, response, thread_id, run_id, and status
+- ✅ **Random test generator** - Create test files with diverse question samples
 
 ## Project Structure
 
 ```
-Question Answer Generator/
+health-question-answer-generator/
 ├── src/
-│   ├── __init__.py        # Makes src a Python package
-│   └── run_batch.py       # Main batch processing script
+│   ├── __init__.py              # Makes src a Python package
+│   ├── generate_answers.py     # Main entry point - interactive file selector
+│   ├── run_batch.py             # Core batch processing engine
+│   ├── create_random_test.py   # Generate random test files
+│   ├── clean_topics.py          # Utility to clean question numbering
+│   └── normalize_topics.py      # Utility to normalize file spacing
 ├── data/
-│   └── topics.txt         # Input: structured questions (see format below)
-├── outputs.csv            # Output: generated at runtime
-├── .env.example           # Template for environment variables
-├── .env                   # Your actual credentials (create from .env.example)
-├── .gitignore             # Git ignore rules
-├── requirements.txt       # Python dependencies
-├── setup.sh               # Setup script for macOS/Linux
-├── setup.bat              # Setup script for Windows
-└── README.md              # This file
+│   ├── 1_energy_fatigue.txt     # Topic 1: Energy & Fatigue questions
+│   ├── 2_sleep_recovery.txt     # Topic 2: Sleep & Recovery questions
+│   ├── 3_stress_anxiety.txt     # Topic 3: Stress & Anxiety questions
+│   ├── 4_nutrition_eating.txt   # Topic 4: Nutrition & Eating questions
+│   ├── 5_hormones_balance.txt   # Topic 5: Hormones & Balance questions
+│   ├── 6_illness_symptoms.txt   # Topic 6: Illness & Symptoms questions
+│   ├── 7_immunity_prevention.txt # Topic 7: Immunity & Prevention questions
+│   ├── 8_mental_health_mood.txt # Topic 8: Mental Health & Mood questions
+│   └── 10_random_test.txt       # Random test file (1 Q per topic)
+├── outputs/                     # Generated CSV files with timestamps
+├── .env.example                 # Template for environment variables
+├── .env                         # Your credentials (create from .env.example)
+├── .gitignore                   # Git ignore rules
+├── requirements.txt             # Python dependencies
+├── setup.sh                     # Setup script for macOS/Linux
+├── setup.bat                    # Setup script for Windows
+└── README.md                    # This file
 ```
 
 ## Setup
@@ -138,23 +152,19 @@ python -m src.generate_answers
 
 ### What Happens
 
-1. The script displays a menu of all topic files in `data/`
-2. You select a file by typing its number (1-10)
-3. The script processes all questions in that file
-4. Results are saved to `outputs/` with a unique timestamped filename
+1. **Menu displays** all topic files in `data/` (numbered 1-10)
+2. **You select** a file by typing its number
+3. **Script processes** all questions in that file:
+   - Parses questions with their context (topic, gender, care focus, has kids)
+   - Checks for already-processed questions (resume capability)
+   - Creates a new OpenAI thread for each question
+   - Sends context-aware prompt to the assistant
+   - Polls the run until completed (max 5 minutes)
+   - Extracts and saves the response
+4. **Progress updates** show "Processing i of N" with status
+5. **Output saved** to `outputs/` with format: `filename_timestamp.csv`
 
-Example: If you select `1_energy_fatigue.txt`, the output will be saved as `outputs/1_energy_fatigue_1729702345.csv`
-
-1. The script reads `data/topics.txt` and parses all questions
-2. Checks `outputs.csv` for already-processed questions (resume capability)
-3. For each new question:
-   - Creates a new OpenAI thread
-   - Sends a structured message with context + question
-   - Polls the run until completed
-   - Extracts the assistant's response
-   - Appends results to `outputs.csv`
-4. Prints progress: "Processing i of N"
-5. Continues even if individual questions fail (logs error in CSV)
+**Example:** Select `1_energy_fatigue.txt` → Output: `outputs/1_energy_fatigue_1729702345.csv`
 
 ### Resume Capability
 
@@ -166,9 +176,29 @@ python src/generate_answers.py
 
 Select the same file number, and the script will automatically skip questions already present in the corresponding output file (matched by exact question text).
 
+## Additional Tools
+
+### Generate Random Test File
+
+Create a test file with one random question from each of the 8 main topics:
+
+```bash
+python -m src.create_random_test
+```
+
+This creates `data/10_random_test.txt` with diverse gender and context combinations.
+
+### Clean Topic Files
+
+Remove leading numbers from questions:
+
+```bash
+python src/clean_topics.py
+```
+
 ## Input Format
 
-The `data/topics.txt` file has a specific structure with repeating sections:
+The topic files in `data/` follow a specific structure with repeating sections:
 
 ### Structure
 
@@ -235,34 +265,38 @@ The script automatically infers user role from gender + has_kids:
 
 ## Message Construction
 
-For each question, the script sends a structured message to the assistant:
+For each question, the script builds a context-aware prompt:
 
 ```
-Context Summary: Topic = [topic]; Gender = [gender]; Care focus = [care_focus]; Has kids = [Yes|No]; Inferred role = [role].
-
-The user has just completed onboarding and provided the following:
+Context:
+• Topic: [topic name]
 • Gender: [Female | Male | Gender Neutral]
 • Care focus: [Myself | My Kids | My Family]
 • Has kids: [Yes | No]
-From this, infer whether the user is a [mother | father | parent | individual].
+• Inferred role: [mother | father | parent | individual]
 
-Write a short, calm, and reassuring message addressed to the person, as Dr Gabi. Assume you already have a trusted relationship with them.
+Write a short, calm, and reassuring message addressed to the person, as Dr Gabi. 
+Assume you already have a trusted relationship with them.
+
 Your response should:
 • Start with one brief empathetic sentence or two that acknowledges their situation.
-• Follow with 2–3 very short bullet points (each under one line) explaining how you can help in their context.
-• End with one short reflective question that encourages engagement.
-Keep it under 100 words total — warm, supportive, and conversational, never promotional or overly detailed.
-Do not use the person's name; you may reference their role when helpful (e.g., "as a mother", "for your family").
+• Follow with 2–3 short bullet points (each under one line) explaining how you can help in their context.
+• End with one short reflective statement that leaves the user feeling hopeful and intrigued.
+• Never ask the user a question as they can't respond at this stage.
+
+Keep it under 150 words total, but lean towards 100 where possible.
+Tone: warm, supportive, and conversational, never promotional or overly detailed.
+Reference their role when helpful (e.g., "as a mother", "for your family").
 
 User Question:
 [exact question text]
 ```
 
-The assistant should already have system instructions; this message provides the per-question context.
+The assistant should have system instructions; this prompt provides per-question context.
 
 ## Output Format
 
-Results are saved to `outputs.csv` with the following columns:
+Results are saved to `outputs/filename_timestamp.csv` with the following columns:
 
 | Column | Description |
 |--------|-------------|
@@ -271,10 +305,11 @@ Results are saved to `outputs.csv` with the following columns:
 | `care_focus` | Myself, My Kids, or My Family |
 | `has_kids` | Yes or No |
 | `role` | mother, father, parent, or individual |
+| `prompt` | The full prompt sent to the assistant |
 | `question` | The exact question text |
 | `response` | The assistant's text response |
-| `thread_id` | OpenAI thread ID |
-| `run_id` | OpenAI run ID |
+| `thread_id` | OpenAI thread ID for debugging |
+| `run_id` | OpenAI run ID for debugging |
 | `status` | completed, failed, timeout, cancelled, expired |
 | `error` | Error message if status != completed |
 
@@ -293,10 +328,10 @@ Results are saved to `outputs.csv` with the following columns:
 - Ensure `.env` file exists in the project root
 - Check that both variables are set correctly
 
-### "No such file or directory: data/topics.txt"
+### "INPUT_FILE and OUTPUT_FILE must be set"
 
-- Ensure `data/topics.txt` exists
-- Run script from project root or use absolute paths
+- Don't run `run_batch.py` directly
+- Use `generate_answers.py` as the entry point instead
 
 ### Assistant responses are empty
 
@@ -312,9 +347,11 @@ Results are saved to `outputs.csv` with the following columns:
 ## Development Notes
 
 - **Synchronous:** Uses blocking API calls, no async complexity
-- **Resume-Safe:** Matching on exact question text; change questions if needed
-- **Minimal Dependencies:** Core functionality uses only `openai`, `python-dotenv`, `tenacity`
-- **No Abstractions:** Single file, straightforward logic for easy debugging
+- **Resume-Safe:** Matching on exact question text in output CSV
+- **Modular:** `generate_answers.py` is the entry point, `run_batch.py` is the engine
+- **Multiple topics per file:** Parser supports multiple "Topic X:" sections in one file
+- **Minimal Dependencies:** Core uses `openai`, `python-dotenv`, `tenacity`
+- **Clean Output:** Each run creates a timestamped CSV in `outputs/` folder
 
 ## License
 
